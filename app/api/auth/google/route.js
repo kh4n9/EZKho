@@ -5,11 +5,21 @@ import { User } from '@/models';
 import { generateToken } from '@/lib/auth';
 import bcrypt from 'bcryptjs';
 
-const client = new OAuth2Client(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
-
 export async function POST(request) {
     try {
         console.log('Google Auth: Request received');
+
+        const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+        if (!clientId) {
+            console.error('Google Auth Error: NEXT_PUBLIC_GOOGLE_CLIENT_ID is not defined');
+            return NextResponse.json(
+                { message: 'Server configuration error: Missing Google Client ID' },
+                { status: 500 }
+            );
+        }
+
+        const client = new OAuth2Client(clientId);
+
         const { credential } = await request.json();
         console.log('Google Auth: Credential received', credential ? 'Yes' : 'No');
 
@@ -25,7 +35,7 @@ export async function POST(request) {
         console.log('Google Auth: Verifying token...');
         const ticket = await client.verifyIdToken({
             idToken: credential,
-            audience: process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID,
+            audience: clientId,
         });
 
         const payload = ticket.getPayload();
@@ -33,8 +43,16 @@ export async function POST(request) {
         const { email, name, picture, sub: googleId } = payload;
 
         console.log('Google Auth: Connecting to database...');
-        await connectToDatabase();
-        console.log('Google Auth: Connected to database');
+        try {
+            await connectToDatabase();
+            console.log('Google Auth: Connected to database');
+        } catch (dbError) {
+            console.error('Google Auth: Database connection failed', dbError);
+            return NextResponse.json(
+                { message: 'Database connection failed', error: dbError.message },
+                { status: 500 }
+            );
+        }
 
         // Check if user exists
         let user = await User.findOne({ email });
@@ -50,7 +68,7 @@ export async function POST(request) {
             const storeName = `Cửa hàng của ${name}`;
 
             user = await User.create({
-                username: email.split('@')[0] + '_' + Math.floor(Math.random() * 1000), // Ensure unique username
+                username: email.split('@')[0] + '_' + Math.floor(Math.random() * 10000), // Ensure unique username (increased range)
                 email,
                 password: randomPassword, // Will be hashed by pre-save hook
                 full_name: name,
